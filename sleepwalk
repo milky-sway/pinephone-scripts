@@ -1,0 +1,113 @@
+#!/bin/bash
+
+SLEEP_SECS=600
+WAKE_SECS=30
+LOCK_DIR="/tmp/sleepwalk"
+
+start_deep_sleep() {
+	led_sleep
+	echo mem > /sys/power/state 2>/dev/null
+	return $?
+}
+
+wait_for_notifications() {
+	secs=$WAKE_SECS
+	is_led_on=0
+	while [ $secs -ge 0 ]; do
+		sleep 1
+		if [ $is_led_on == 0 ]; then
+			led_wake
+			is_led_on=1
+		else
+			led_disable
+			is_led_on=0
+		fi
+
+		if is_screen_on; then
+			break
+		fi
+		secs=$(($secs-1))
+	done
+	led_disable
+}
+
+schedule_wake_time() {
+	rtcwake -m no --date "+${SLEEP_SECS}s" 2>&1 >/dev/null
+}
+
+reset_wake_time() {
+	led_wake
+	> /sys/class/rtc/rtc0/wakealarm
+}
+
+is_screen_on() {
+	return "$(cat /sys/class/backlight/backlight/bl_power)"
+}
+
+led_sleep() {
+	echo 1 > /sys/class/leds/green\:indicator/brightness
+	echo 0 > /sys/class/leds/red\:indicator/brightness
+	echo 0 > /sys/class/leds/blue\:indicator/brightness
+}
+
+led_wake() {
+	echo 0 > /sys/class/leds/green\:indicator/brightness
+	echo 1 > /sys/class/leds/red\:indicator/brightness
+	echo 0 > /sys/class/leds/blue\:indicator/brightness
+}
+
+led_disable() {
+	echo 0 > /sys/class/leds/green\:indicator/brightness
+	echo 0 > /sys/class/leds/red\:indicator/brightness
+	echo 0 > /sys/class/leds/blue\:indicator/brightness
+}
+
+if [ $EUID -ne 0 ]; then
+	echo "Needs root" >&2
+	exit 1
+fi
+
+if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+	cat <<-EOF >&2
+		Usage: sleepwalk [start/stop]
+		Commands:
+			 start		Start sleep cycle
+			 stop		Stop sleep cycle
+	EOF
+	exit
+fi
+
+if [ "$1" == "start" ]; then
+	if [ -d "$LOCK_DIR" ] || ! mkdir "$LOCK_DIR"; then
+		echo "sleepwalk is already running - run 'sleepwalk stop' to stop it" >&2
+		exit 1
+	fi
+	trap "$0 stop" EXIT
+
+	while [ -d "$LOCK_DIR" ]; do
+		while is_screen_on; do
+			sleep 60
+		done
+
+		reset_wake_time
+		schedule_wake_time
+
+		while ! start_deep_sleep; do
+			reset_wake_time
+			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
+			wait_for_notifications
+			schedule_wake_time
+			if is_screen_on; then
+				break
+			fi
+		done
+		wait_for_notifications
+	done
+elif [ "$1" == "stop" ]; then
+	reset_wake_time
+	led_disable
+	rmdir "$LOCK_DIR" 2>/dev/null
+else
+	echo "Unknown command: $1" >&2
+	exit 1
+fi
