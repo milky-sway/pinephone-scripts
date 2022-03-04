@@ -3,6 +3,26 @@
 SLEEP_SECS=600
 WAKE_SECS=30
 LOCK_DIR="/tmp/sleepwalk"
+CPU_STATE=1 # Assumed state on startup
+
+set_cpu_offline() {
+	if [ $CPU_STATE -eq 1 ]; then
+		# Power off all CPU cores except cpu0
+		for i in $(seq 3); do
+			echo 0 > /sys/devices/system/cpu/cpu$i/online
+		done
+		CPU_STATE=0
+	fi
+}
+
+set_cpu_online() {
+	if [ $CPU_STATE -eq 0 ]; then
+		for i in $(seq 3); do
+			echo 1 > /sys/devices/system/cpu/cpu$i/online
+		done
+		CPU_STATE=1
+	fi
+}
 
 start_deep_sleep() {
 	led_sleep
@@ -24,8 +44,10 @@ wait_for_notifications() {
 		fi
 
 		if is_screen_on; then
+			set_cpu_online
 			break
 		fi
+		set_cpu_offline
 		secs=$(($secs-1))
 	done
 	led_disable
