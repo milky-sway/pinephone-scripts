@@ -23,7 +23,7 @@ wait_for_notifications() {
 			is_led_on=0
 		fi
 
-		if is_screen_on; then
+		if is_screen_on_or_inhibitor_active; then
 			break
 		fi
 		secs=$(($secs-1))
@@ -40,7 +40,15 @@ reset_wake_time() {
 	> /sys/class/rtc/rtc0/wakealarm
 }
 
-is_screen_on() {
+is_screen_on_or_inhibitor_active() {
+	INHIBITORS=$(systemd-inhibit --list --no-legend \
+		| grep -e '[[:space:]]sleep[[:space:]]' \
+		| grep -e 'lock$')
+
+	if [ "$INHIBITORS" != "" ]; then
+		return 0
+	fi
+
 	return "$(cat /sys/class/backlight/backlight/bl_power)"
 }
 
@@ -85,7 +93,7 @@ if [ "$1" == "start" ]; then
 	trap "$0 stop" EXIT
 
 	while [ -d "$LOCK_DIR" ]; do
-		while is_screen_on; do
+		while is_screen_on_or_inhibitor_active; do
 			sleep 60
 		done
 
@@ -97,7 +105,7 @@ if [ "$1" == "start" ]; then
 			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
 			wait_for_notifications
 			schedule_wake_time
-			if is_screen_on; then
+			if is_screen_on_or_inhibitor_active; then
 				break
 			fi
 		done
