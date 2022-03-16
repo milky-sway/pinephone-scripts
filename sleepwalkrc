@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+description="Deep-Sleep-Service for Pinephone with support for periodic wakeups to get notifications"
+
+start() {
+    ebegin "Starting sleepwalk"
+    start-stop-daemon --background --start --exec sleepwalk start --make-pidfile --pidfile="/run/sleepwalk"
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping sleepwalk"
+    start-stop-daemon --stop --exec sleepwalk stop --pidfile="/run/sleepwalk"
+    eend $?
+}
