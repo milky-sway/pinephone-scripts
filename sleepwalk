@@ -1,6 +1,9 @@
 #!/bin/bash
 
-SLEEP_SECS=600
+SLEEP_STEP=30
+SLEEP_SECS_INIT=$SLEEP_STEP
+SLEEP_SECS=$SLEEP_SECS_INIT
+SLEEP_MAX_SECS=600
 WAKE_SECS=30
 LOCK_DIR="/tmp/sleepwalk"
 
@@ -24,6 +27,7 @@ wait_for_notifications() {
 		fi
 
 		if is_screen_on; then
+			SLEEP_SECS=$SLEEP_SECS_INIT
 			break
 		fi
 		secs=$(($secs-1))
@@ -101,6 +105,13 @@ if [ "$1" == "start" ]; then
 				break
 			fi
 		done
+
+		if [ $((SLEEP_SECS + $SLEEP_STEP)) -lt $SLEEP_MAX_SECS ]; then
+			SLEEP_SECS=$((SLEEP_SECS + SLEEP_STEP))
+		else
+			SLEEP_SECS=$SLEEP_MAX_SECS
+		fi
+
 		wait_for_notifications
 	done
 elif [ "$1" == "stop" ]; then
