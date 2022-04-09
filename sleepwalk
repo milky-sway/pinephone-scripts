@@ -6,6 +6,8 @@ SLEEP_SECS=$SLEEP_SECS_INIT
 SLEEP_MAX_SECS=600
 WAKE_SECS=30
 LOCK_DIR="/tmp/sleepwalk"
+IS_NOTIFICATION=0
+NOTIFICATION_FILE="/tmp/sleepwalk-notify"
 
 start_deep_sleep() {
 	led_sleep
@@ -30,6 +32,7 @@ wait_for_notifications() {
 			SLEEP_SECS=$SLEEP_SECS_INIT
 			break
 		fi
+		check_notifications
 		secs=$(($secs-1))
 	done
 	led_disable
@@ -53,15 +56,27 @@ can_sleep() {
 }
 
 led_sleep() {
-	echo 1 > /sys/class/leds/green\:indicator/brightness
-	echo 0 > /sys/class/leds/red\:indicator/brightness
-	echo 0 > /sys/class/leds/blue\:indicator/brightness
+	if [ $IS_NOTIFICATION == 0 ]; then
+		echo 1 > /sys/class/leds/green\:indicator/brightness
+		echo 0 > /sys/class/leds/red\:indicator/brightness
+		echo 0 > /sys/class/leds/blue\:indicator/brightness
+	else
+		echo 0 > /sys/class/leds/green\:indicator/brightness
+		echo 0 > /sys/class/leds/red\:indicator/brightness
+		echo 1 > /sys/class/leds/blue\:indicator/brightness
+	fi
 }
 
 led_wake() {
-	echo 0 > /sys/class/leds/green\:indicator/brightness
-	echo 1 > /sys/class/leds/red\:indicator/brightness
-	echo 0 > /sys/class/leds/blue\:indicator/brightness
+	if [ $IS_NOTIFICATION == 0 ]; then
+		echo 0 > /sys/class/leds/green\:indicator/brightness
+		echo 1 > /sys/class/leds/red\:indicator/brightness
+		echo 0 > /sys/class/leds/blue\:indicator/brightness
+	else
+		echo 0 > /sys/class/leds/green\:indicator/brightness
+		echo 0 > /sys/class/leds/red\:indicator/brightness
+		echo 1 > /sys/class/leds/blue\:indicator/brightness
+	fi
 }
 
 led_disable() {
@@ -69,6 +84,22 @@ led_disable() {
 	echo 0 > /sys/class/leds/red\:indicator/brightness
 	echo 0 > /sys/class/leds/blue\:indicator/brightness
 }
+
+notification_watcher() {
+	sudo -u "$(cat /proc/$(pidof -s gnome-session-ctl)/environ | grep -z USER | sed 's,\x0,,;s,USER=,,')" DBUS_SESSION_BUS_ADDRESS=$(cat /proc/$(pidof -s gnome-session-ctl)/environ | grep -z DBUS_SESSION_BUS_ADDRESS | sed "s,\x0,,;s,DBUS_SESSION_BUS_ADDRESS=,,") dbus-monitor interface='org.freedesktop.Notifications' > "$NOTIFICATION_FILE"
+}
+
+check_notifications() {
+	if cat "$NOTIFICATION_FILE" | grep "member=NotificationClosed" >/dev/null; then
+		IS_NOTIFICATION=0
+		> "$NOTIFICATION_FILE"
+	elif cat "$NOTIFICATION_FILE" | grep "member=Notify" >/dev/null; then
+		IS_NOTIFICATION=1
+	else
+		IS_NOTIFICATION=0
+	fi
+}
+
 
 if [ $EUID -ne 0 ]; then
 	echo "Needs root" >&2
@@ -90,7 +121,11 @@ if [ "$1" == "start" ]; then
 		echo "sleepwalk is already running - run 'sleepwalk stop' to stop it" >&2
 		exit 1
 	fi
-	trap "$0 stop" EXIT
+	trap "kill $NOTIFICATION_WATCHER; $0 stop" EXIT
+
+	touch "$NOTIFICATION_FILE"
+	notification_watcher &
+	NOTIFICATION_WATCHER=$!
 
 	while [ -d "$LOCK_DIR" ]; do
 		while ! can_sleep; do
@@ -100,6 +135,7 @@ if [ "$1" == "start" ]; then
 		reset_wake_time
 		schedule_wake_time
 
+		check_notifications
 		while ! start_deep_sleep; do
 			reset_wake_time
 			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
@@ -118,10 +154,12 @@ if [ "$1" == "start" ]; then
 
 		wait_for_notifications
 	done
+	kill $NOTIFICATION_WATCHER
 elif [ "$1" == "stop" ]; then
 	reset_wake_time
 	led_disable
 	rmdir "$LOCK_DIR" 2>/dev/null
+	rm "$NOTIFICATION_FILE" 2>/dev/null
 else
 	echo "Unknown command: $1" >&2
 	exit 1
