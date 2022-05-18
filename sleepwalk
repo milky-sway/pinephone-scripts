@@ -69,12 +69,14 @@ inhibit_sleep() {
 	fi
 
 	# Inhibit sleep if an inhibiting application is active
-	if [ is_inhibitor_active == 1 ]; then
+	is_inhibitor_active
+	if [ $? == 1 ]; then
 		return 1
 	fi
 
 	# Inhibit sleep if a call is active
-	if [ is_call_active == 1 ]; then
+	is_call_active
+	if [ $? == 1 ]; then
 		return 1
 	fi
 
