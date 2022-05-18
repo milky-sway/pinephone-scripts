@@ -47,15 +47,41 @@ reset_wake_time() {
 	> /sys/class/rtc/rtc0/wakealarm
 }
 
-can_sleep() {
-	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ] || [ !is_screen_on_or_inhibitor_active ] || [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
+inhibit_sleep() {
+	# Inhibit sleep if backlight is on (bl_power equals zero when on)
+	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ]; then
 		return 1
-	else
-		return 0
 	fi
+
+	# Inhibit sleep if USB power is active (PinePhone)
+	#if [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
+	#    return 1
+	#fi
+
+	# Inhibit sleep if USB power is active (PinePhone Pro)
+	#if [ "$(cat /sys/class/power_supply/rk818-usb/present)" == "1" ]; then
+	#	return 1
+	#fi
+
+	# Inhibit sleep if USB power is active (PinePhone Keyboard Case)
+	if [ "$(cat /sys/class/power_supply/ip5xxx-usb/present)" == "1" ]; then
+		return 1
+	fi
+
+	# Inhibit sleep if an inhibiting application is active
+	if [ is_inhibitor_active == 1 ]; then
+		return 1
+	fi
+
+	# Inhibit sleep if a call is active
+	if [ is_call_active == 1 ]; then
+		return 1
+	fi
+
+	return 0
 }
 
-is_screen_on_or_inhibitor_active() {
+is_inhibitor_active() {
 	INHIBITORS=$(systemd-inhibit --list --no-legend \
 		| grep -e '[[:space:]]sleep[[:space:]]' \
 		| grep -e 'lock$')
@@ -64,7 +90,17 @@ is_screen_on_or_inhibitor_active() {
 		return 0
 	fi
 
-	return "$(cat /sys/class/backlight/backlight/bl_power)"
+	return 1
+}
+
+is_call_active() {
+	CALLS=$(mmcli -m any --voice-list-calls)
+
+	if [ "$CALLS" == "No calls were found" ]; then
+		return 0
+	fi
+
+	return 1
 }
 
 led_sleep() {
@@ -140,7 +176,7 @@ if [ "$1" == "start" ]; then
 	NOTIFICATION_WATCHER=$!
 
 	while [ -d "$LOCK_DIR" ]; do
-		while ! can_sleep; do
+		while ! inhibit_sleep; do
 			sleep 60
 		done
 
@@ -153,7 +189,7 @@ if [ "$1" == "start" ]; then
 			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
 			wait_for_notifications
 			schedule_wake_time
-			if ! can_sleep; then
+			if ! inhibit_sleep; then
 				break
 			fi
 		done
