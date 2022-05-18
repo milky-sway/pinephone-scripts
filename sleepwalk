@@ -63,46 +63,44 @@ is_call_active() {
 	CALLS=$(mmcli -m any --voice-list-calls)
 
 	if [ "$CALLS" == "No calls were found" ]; then
-		return 0
+		return 1
 	fi
 
-	return 1
+	return 0
 }
 
 inhibit_sleep() {
 	# Inhibit sleep if backlight is on (bl_power equals zero when on)
 	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ]; then
-		return 1
+		return 0
 	fi
 
 	# Inhibit sleep if USB power is active (PinePhone)
 	#if [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
-	#    return 1
+	#    return 0
 	#fi
 
 	# Inhibit sleep if USB power is active (PinePhone Pro)
 	#if [ "$(cat /sys/class/power_supply/rk818-usb/present)" == "1" ]; then
-	#	return 1
+	#	return 0
 	#fi
 
 	# Inhibit sleep if USB power is active (PinePhone Keyboard Case)
 	if [ "$(cat /sys/class/power_supply/ip5xxx-usb/present)" == "1" ]; then
-		return 1
+		return 0
 	fi
 
 	# Inhibit sleep if an inhibiting application is active
-	is_inhibitor_active
-	if [ $? == 1 ]; then
-		return 1
+	if is_inhibitor_active; then
+		return 0
 	fi
 
 	# Inhibit sleep if a call is active
-	is_call_active
-	if [ $? == 1 ]; then
-		return 1
+	if is_call_active; then
+		return 0
 	fi
 
-	return 0
+	return 1
 }
 
 led_sleep() {
@@ -178,7 +176,17 @@ if [ "$1" == "start" ]; then
 	NOTIFICATION_WATCHER=$!
 
 	while [ -d "$LOCK_DIR" ]; do
-		while ! inhibit_sleep; do
+		# while true; do
+		# 	if inhibit_sleep; then
+		# 		echo "sleep inhibited"
+		# 	else
+		# 		echo "sleep not inhibited"
+		# 	fi
+
+		# 	sleep 1
+		# done
+
+		while inhibit_sleep; do
 			sleep 60
 		done
 
@@ -191,7 +199,7 @@ if [ "$1" == "start" ]; then
 			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
 			wait_for_notifications
 			schedule_wake_time
-			if ! inhibit_sleep; then
+			if inhibit_sleep; then
 				break
 			fi
 		done
