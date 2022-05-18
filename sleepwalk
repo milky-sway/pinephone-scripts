@@ -47,6 +47,28 @@ reset_wake_time() {
 	> /sys/class/rtc/rtc0/wakealarm
 }
 
+is_inhibitor_active() {
+	INHIBITORS=$(systemd-inhibit --list --no-legend \
+		| grep -e '[[:space:]]sleep[[:space:]]' \
+		| grep -e 'lock$')
+
+	if [ "$INHIBITORS" != "" ]; then
+		return 0
+	fi
+
+	return 1
+}
+
+is_call_active() {
+	CALLS=$(mmcli -m any --voice-list-calls)
+
+	if [ "$CALLS" == "No calls were found" ]; then
+		return 0
+	fi
+
+	return 1
+}
+
 inhibit_sleep() {
 	# Inhibit sleep if backlight is on (bl_power equals zero when on)
 	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ]; then
@@ -81,28 +103,6 @@ inhibit_sleep() {
 	fi
 
 	return 0
-}
-
-is_inhibitor_active() {
-	INHIBITORS=$(systemd-inhibit --list --no-legend \
-		| grep -e '[[:space:]]sleep[[:space:]]' \
-		| grep -e 'lock$')
-
-	if [ "$INHIBITORS" != "" ]; then
-		return 0
-	fi
-
-	return 1
-}
-
-is_call_active() {
-	CALLS=$(mmcli -m any --voice-list-calls)
-
-	if [ "$CALLS" == "No calls were found" ]; then
-		return 0
-	fi
-
-	return 1
 }
 
 led_sleep() {
