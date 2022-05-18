@@ -15,29 +15,6 @@ start_deep_sleep() {
 	return $?
 }
 
-wait_for_notifications() {
-	secs=$WAKE_SECS
-	is_led_on=0
-	while [ $secs -ge 0 ]; do
-		sleep 1
-		if [ $is_led_on == 0 ]; then
-			led_wake
-			is_led_on=1
-		else
-			led_disable
-			is_led_on=0
-		fi
-
-		if ! can_sleep; then
-			SLEEP_SECS=$SLEEP_SECS_INIT
-			break
-		fi
-		check_notifications
-		secs=$(($secs-1))
-	done
-	led_disable
-}
-
 schedule_wake_time() {
 	rtcwake -m no --date "+${SLEEP_SECS}s" 2>&1 >/dev/null
 }
@@ -60,13 +37,13 @@ is_inhibitor_active() {
 }
 
 is_call_active() {
-	CALLS=$(mmcli -m any --voice-list-calls)
+	CALLS=$(mmcli -m any --voice-list-calls | grep 'freedesktop')
 
-	if [ "$CALLS" == "No calls were found" ]; then
-		return 1
+	if [ "$CALLS" != "" ]; then
+		return 0
 	fi
 
-	return 0
+	return 1
 }
 
 inhibit_sleep() {
@@ -148,6 +125,28 @@ check_notifications() {
 	fi
 }
 
+wait_for_notifications() {
+	secs=$WAKE_SECS
+	is_led_on=0
+	while [ $secs -ge 0 ]; do
+		sleep 1
+		if [ $is_led_on == 0 ]; then
+			led_wake
+			is_led_on=1
+		else
+			led_disable
+			is_led_on=0
+		fi
+
+		if inhibit_sleep; then
+			SLEEP_SECS=$SLEEP_SECS_INIT
+			break
+		fi
+		check_notifications
+		secs=$(($secs-1))
+	done
+	led_disable
+}
 
 if [ $EUID -ne 0 ]; then
 	echo "Needs root" >&2
