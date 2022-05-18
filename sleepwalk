@@ -15,29 +15,6 @@ start_deep_sleep() {
 	return $?
 }
 
-wait_for_notifications() {
-	secs=$WAKE_SECS
-	is_led_on=0
-	while [ $secs -ge 0 ]; do
-		sleep 1
-		if [ $is_led_on == 0 ]; then
-			led_wake
-			is_led_on=1
-		else
-			led_disable
-			is_led_on=0
-		fi
-
-		if ! can_sleep; then
-			SLEEP_SECS=$SLEEP_SECS_INIT
-			break
-		fi
-		check_notifications
-		secs=$(($secs-1))
-	done
-	led_disable
-}
-
 schedule_wake_time() {
 	rtcwake -m no --date "+${SLEEP_SECS}s" 2>&1 >/dev/null
 }
@@ -47,12 +24,60 @@ reset_wake_time() {
 	> /sys/class/rtc/rtc0/wakealarm
 }
 
-can_sleep() {
-	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ] || [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
-		return 1
-	else
+is_inhibitor_active() {
+	INHIBITORS=$(systemd-inhibit --list --no-legend \
+		| grep -e '[[:space:]]sleep[[:space:]]' \
+		| grep -e 'lock$')
+
+	if [ "$INHIBITORS" != "" ]; then
 		return 0
 	fi
+
+	return 1
+}
+
+is_call_active() {
+	CALLS=$(mmcli -m any --voice-list-calls | grep 'freedesktop')
+
+	if [ "$CALLS" != "" ]; then
+		return 0
+	fi
+
+	return 1
+}
+
+inhibit_sleep() {
+	# Inhibit sleep if backlight is on (bl_power equals zero when on)
+	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ]; then
+		return 0
+	fi
+
+	# Inhibit sleep if USB power is active (PinePhone)
+	#if [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
+	#    return 0
+	#fi
+
+	# Inhibit sleep if USB power is active (PinePhone Pro)
+	#if [ "$(cat /sys/class/power_supply/rk818-usb/present)" == "1" ]; then
+	#	return 0
+	#fi
+
+	# Inhibit sleep if USB power is active (PinePhone Keyboard Case)
+	if [ "$(cat /sys/class/power_supply/ip5xxx-usb/present)" == "1" ]; then
+		return 0
+	fi
+
+	# Inhibit sleep if an inhibiting application is active
+	if is_inhibitor_active; then
+		return 0
+	fi
+
+	# Inhibit sleep if a call is active
+	if is_call_active; then
+		return 0
+	fi
+
+	return 1
 }
 
 led_sleep() {
@@ -100,6 +125,28 @@ check_notifications() {
 	fi
 }
 
+wait_for_notifications() {
+	secs=$WAKE_SECS
+	is_led_on=0
+	while [ $secs -ge 0 ]; do
+		sleep 1
+		if [ $is_led_on == 0 ]; then
+			led_wake
+			is_led_on=1
+		else
+			led_disable
+			is_led_on=0
+		fi
+
+		if inhibit_sleep; then
+			SLEEP_SECS=$SLEEP_SECS_INIT
+			break
+		fi
+		check_notifications
+		secs=$(($secs-1))
+	done
+	led_disable
+}
 
 if [ $EUID -ne 0 ]; then
 	echo "Needs root" >&2
@@ -128,7 +175,17 @@ if [ "$1" == "start" ]; then
 	NOTIFICATION_WATCHER=$!
 
 	while [ -d "$LOCK_DIR" ]; do
-		while ! can_sleep; do
+		# while true; do
+		# 	if inhibit_sleep; then
+		# 		echo "sleep inhibited"
+		# 	else
+		# 		echo "sleep not inhibited"
+		# 	fi
+
+		# 	sleep 1
+		# done
+
+		while inhibit_sleep; do
 			sleep 60
 		done
 
@@ -141,7 +198,7 @@ if [ "$1" == "start" ]; then
 			echo "Failed going to sleep, try again in $WAKE_SECS seconds ..." >&2
 			wait_for_notifications
 			schedule_wake_time
-			if ! can_sleep; then
+			if inhibit_sleep; then
 				break
 			fi
 		done
