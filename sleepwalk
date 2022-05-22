@@ -48,6 +48,11 @@ reset_wake_time() {
 }
 
 can_sleep() {
+	INHIBITORS=$(sudo -u "$(cat /proc/$(pidof -s gnome-session-ctl)/environ | grep -z USER | sed 's,\x0,,;s,USER=,,')" DBUS_SESSION_BUS_ADDRESS=$(cat /proc/$(pidof -s gnome-session-ctl)/environ | grep -z DBUS_SESSION_BUS_ADDRESS | sed "s,\x0,,;s,DBUS_SESSION_BUS_ADDRESS=,,") gnome-session-inhibit --list)
+	if [ "$INHIBITORS" != "No inhibitors" ]; then
+		return 1
+	fi
+	
 	if [ "$(cat /sys/class/backlight/backlight/bl_power)" == 0 ] || [ "$(cat /sys/class/power_supply/axp20x-usb/online)" == "1" ]; then
 		return 1
 	else
