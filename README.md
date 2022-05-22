@@ -16,8 +16,6 @@ How to install and use:
     - Copy the openrc service file 'sleepwalkrc' to '/etc/init.d'
     - Execute 'rc-update add sleepwalkrc' and 'service sleepwalkrc start' to enable and start the service
 
-Known issues:
-- Phone will go to sleep even if apps like for example a music player is playing in the background while the screen is turned off. It will however not sleep, if you are making a call.
-
 Dependencies:
 - rtcwake
+- gnome-session
